@@ -1503,8 +1503,9 @@ function markScheduleDirty() { _scheduleDirty = true; }
 
 // ── Intensity bake + Photoperiod stretch (Effects) ───────────────────────────
 // Intensity keeps intensityBaseline (pre-bake schedule) and always scales FROM it.
-// Photoperiod keeps photoBaseline and widens only the peak plateau (sum-of-channels
-// at its maximum until decline). Ramp-up / ramp-down durations are preserved.
+// Photoperiod keeps photoBaseline and inserts extra peak hours into the plateau
+// (sum-of-channels at daily max until decline). Ramp-up/down shape+duration are
+// copied unchanged; night is compressed. No whole-envelope rescale.
 // Order: Intensity baseline is the pre-intensity schedule. If Photoperiod is already
 // on, Intensity prefers photoBaseline (unstretched) so levels bake cleanly, then
 // Photoperiod re-applies from the intensity-scaled rows. Off on either restores
@@ -1644,75 +1645,81 @@ function _hourInInclusiveSpan(h, lo, hi) {
   if (lo <= hi) return h >= lo && h <= hi;
   return h >= lo || h <= hi;
 }
-function _mapPhotoSide(absOffset, newPlat, oldPlat, rampLen) {
-  const newDayEdge = newPlat + rampLen;
-  const oldDayEdge = oldPlat + rampLen;
-  if (absOffset <= newPlat + 1e-9) {
-    return newPlat > 1e-9 ? absOffset * (oldPlat / newPlat) : 0;
+function _circularHoursAfterTo(startInclusive, endExclusive) {
+  // Hours strictly after startInclusive, walking forward, up to but not including endExclusive.
+  const out = [];
+  let h = (startInclusive + 1) % 24;
+  const end = ((endExclusive % 24) + 24) % 24;
+  for (let n = 0; n < 24; n++) {
+    if (h === end) break;
+    out.push(h);
+    h = (h + 1) % 24;
   }
-  if (absOffset <= newDayEdge + 1e-9) {
-    return oldPlat + (absOffset - newPlat);
+  return out;
+}
+function _dropDarkestContiguous(rows, hourList, nDrop) {
+  // Remove nDrop contiguous hours with the lowest combined channel sum (night).
+  // Remaining hours keep their relative order so ramp sequences stay intact.
+  if (nDrop <= 0) return hourList.slice();
+  if (nDrop >= hourList.length) return [];
+  const weights = hourList.map(h => {
+    let s = 0;
+    for (let c = 2; c < 8; c++) s += (rows[h][c] || 0);
+    return s;
+  });
+  let bestStart = 0, bestSum = Infinity;
+  for (let i = 0; i <= hourList.length - nDrop; i++) {
+    let sum = 0;
+    for (let j = 0; j < nDrop; j++) sum += weights[i + j];
+    if (sum < bestSum) { bestSum = sum; bestStart = i; }
   }
-  const newNight = Math.max(0, 12 - newDayEdge);
-  const oldNight = Math.max(0, 12 - oldDayEdge);
-  const nightPos = absOffset - newDayEdge;
-  const srcNight = newNight > 1e-9 ? nightPos * (oldNight / Math.max(newNight, 1e-9)) : nightPos;
-  return oldDayEdge + srcNight;
+  return hourList.filter((_, i) => i < bestStart || i >= bestStart + nDrop);
 }
 function stretchScheduleRows(rows, deltaHours) {
-  // Widen only the peak plateau: hours where sum-of-channels equals the daily
-  // max, until it declines. Added time becomes extra peak-hour slots; ramp-up
-  // and ramp-down keep their durations and are shifted outward.
+  // Widen ONLY the peak plateau: insert extra copies of a peak hour.
+  // Ramp-up / ramp-down keep identical shape and duration (shifted as a block).
+  // Night is compressed by dropping the darkest contiguous non-plateau hours.
+  // Do NOT rescale/stretch the whole envelope.
   const env = _schedEnvelope(rows);
   const plat = _peakPlateauBounds(env);
   if (plat.peakVal <= 0) return null;
   const m = _photoMetrics(rows);
   const oldCount = plat.plateauHours;
   let add = Math.max(0, deltaHours);
-  const maxAdd = Math.max(0, 20 - (oldCount + m.rampUpHours + m.rampDownHours));
+  const daySpan = oldCount + Math.ceil(m.rampUpHours || 0) + Math.ceil(m.rampDownHours || 0);
+  const maxAdd = Math.max(0, 20 - daySpan);
   add = Math.min(add, maxAdd);
-  const addQ = Math.round(add * 4) / 4;
-  if (addQ < 1e-9) return rows.map(r => r.slice());
+  const nAdd = Math.round(add); // hourly schedule grid
+  if (nAdd <= 0) return rows.map(r => r.slice());
 
-  // Whole hours expand the discrete peak span (hourly schedule grid).
-  const nAdd = Math.round(addQ);
   const leftAdd = Math.floor(nAdd / 2);
   const rightAdd = nAdd - leftAdd;
-  let newLo = plat.lo - leftAdd;
-  let newHi = plat.hi + rightAdd;
-  while (newHi - newLo + 1 > 20) {
-    if (rightAdd >= leftAdd) newHi--;
-    else newLo++;
-  }
-  // Peak row sample from the middle of the old plateau.
-  const peakRow = _interpSchedRow(rows, plat.center);
+  const newCount = oldCount + nAdd;
+  const oldLo = plat.lo;
+  const oldHi = plat.hi;
+  const newLo = (oldLo - leftAdd + 24) % 24;
+  const newHi = (oldHi + rightAdd + 24) % 24;
 
-  // Ramp lengths in hours (from metrics); shift with the new plateau edges.
-  const rampUp = m.rampUpHours;
-  const rampDown = m.rampDownHours;
-  // Old plateau edges as floats (inclusive hour hi → end at hi+0.5 from center math).
-  const oldLeft = m.platLeft;
-  const oldRight = m.platRight;
-  const newLeft = oldLeft + addQ / 2;
-  const newRight = oldRight + addQ / 2;
+  // Exact peak row from an existing plateau hour (no interpolation reshape).
+  const peakRow = rows[oldLo].slice();
 
-  const out = [];
-  for (let h = 0; h < 24; h++) {
-    let row;
-    if (_hourInInclusiveSpan(h, newLo, newHi)) {
-      row = peakRow.slice();
-    } else {
-      const offset = _signedHourDelta(h + 0.0, m.center);
-      let srcOffset;
-      if (offset < 0) {
-        srcOffset = -_mapPhotoSide(-offset, newLeft, oldLeft, rampUp);
-      } else {
-        srcOffset = _mapPhotoSide(offset, newRight, oldRight, rampDown);
-      }
-      row = _interpSchedRow(rows, m.center + srcOffset);
-    }
+  const srcNon = _circularHoursAfterTo(oldHi, oldLo);
+  const srcKeep = _dropDarkestContiguous(rows, srcNon, nAdd);
+  const dstNon = _circularHoursAfterTo(newHi, newLo);
+  if (srcKeep.length !== dstNon.length) return null;
+
+  const out = new Array(24);
+  for (let i = 0; i < newCount; i++) {
+    const h = (newLo + i) % 24;
+    const row = peakRow.slice();
     row[0] = h;
-    out.push(row);
+    out[h] = row;
+  }
+  for (let i = 0; i < dstNon.length; i++) {
+    const h = dstNon[i];
+    const row = rows[srcKeep[i]].slice();
+    row[0] = h;
+    out[h] = row;
   }
   return out;
 }
@@ -1839,6 +1846,10 @@ function _afterIntensityWrite(next) {
   if (typeof updateColorStrip === 'function') updateColorStrip();
   if (typeof updateNowBars === 'function') updateNowBars();
   if (typeof buildNowBars === 'function') buildNowBars();
+  if (typeof buildSchedTable === 'function' && document.getElementById('schedCollapse')?.classList.contains('open'))
+    buildSchedTable();
+  if (typeof updateSchedTable === 'function' && document.getElementById('schedCollapse')?.classList.contains('open'))
+    updateSchedTable();
   if (typeof syncCapSliders === 'function') syncCapSliders();
   if (typeof syncChannelSliders === 'function') syncChannelSliders();
 }
@@ -1909,8 +1920,9 @@ async function onIntensityEnableChange() {
   if (!on) {
     if (intensityBaseline) {
       const restored = cloneScheduleRows(intensityBaseline);
-      intensityBaseline = null;
+      // Write first, clear baseline only after restore so a failed write cannot lose it.
       _afterIntensityWrite(restored);
+      intensityBaseline = null;
       if (document.getElementById('psEnabled')?.checked) {
         photoBaseline = null;
         await onPhotoperiodChange();
@@ -1923,6 +1935,7 @@ async function onIntensityEnableChange() {
     if (sub) sub.textContent = 'Off';
     updateIntensityHint();
     updatePhotoperiodHint();
+    if (typeof updateChart === 'function') updateChart();
     return;
   }
   if (!intensityBaseline) _captureIntensityBaseline();
@@ -1935,11 +1948,12 @@ async function onIntensityEnableChange() {
   updateIntensityHint();
   if (typeof updateChart === 'function') updateChart();
 }
-function toggleIntensity() {
+async function toggleIntensity() {
   const box = document.getElementById('ixEnabled');
   if (!box) return;
   box.checked = !box.checked;
-  onIntensityEnableChange();
+  // Await so Off restore finishes before any subsequent UI work.
+  await onIntensityEnableChange();
   if (box.checked) {
     if (typeof toggleFxSet === 'function') {
       const el = document.getElementById('intensitySettings');
