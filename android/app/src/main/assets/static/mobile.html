@@ -369,6 +369,8 @@ body {
 .fx-tog.on-maintenance { border-color: rgba(203,213,225,0.65); background: rgba(203,213,225,0.12); color: var(--on-maintenance-text); }
 .fx-tog.on-acclimation { border-color: rgba(16,185,129,0.6); background: rgba(16,185,129,0.12); color: #10b981; }
 .fx-tog.on-seasonal { border-color: rgba(234,179,8,0.6); background: rgba(234,179,8,0.12); color: #eab308; }
+.fx-tog.on-intensity { border-color: rgba(244,114,182,0.6); background: rgba(244,114,182,0.12); color: #f472b6; }
+.fx-tog.on-photoperiod { border-color: rgba(45,212,191,0.6); background: rgba(45,212,191,0.12); color: #2dd4bf; }
 .fx-tog.on-lunar { border-color: rgba(99,102,241,0.6);  background: rgba(99,102,241,0.15);  color: #818cf8; }
 .fx-set-toggle {
   padding: 0 14px 10px; font-size: 0.75rem; color: var(--muted); cursor: pointer; user-select: none;
@@ -626,25 +628,6 @@ dialog.fr-dialog .fr-skip { padding:4px 0; background:none; border:none; color:v
     <div id="chanCaps"></div>
     <div class="cap-note">Master applies live. Colour caps apply when you tap Push to Lamp. Tap 🔒 to adjust.</div>
 
-  <div class="sched-tools" id="schedTools">
-    <div>
-      <div class="st-row">
-        <span class="st-lbl">Day length</span>
-        <button type="button" class="st-btn" onclick="stretchPhotoperiod(-0.25)" title="Narrow photoperiod by 15 minutes">−15m</button>
-        <span class="st-val" id="photoLenVal">—</span>
-        <button type="button" class="st-btn" onclick="stretchPhotoperiod(+0.25)" title="Widen photoperiod by 15 minutes">+15m</button>
-      </div>
-      <div class="st-hint">Widens or narrows the bright period; whole 24h curve scales around its centre (shape kept). Different from Seasonal Shift / hour Shift.</div>
-    </div>
-    <div>
-      <div class="st-row">
-        <span class="st-lbl">Bake</span>
-        <input type="range" id="bakeSlider" class="st-slider" min="25" max="200" value="100" oninput="onBakeSliderInput()">
-        <span class="st-val" id="bakeVal">100%</span>
-        <button type="button" class="st-btn primary" onclick="applyIntensityBake()" title="Multiply stored schedule levels (ratios kept; capped at 100%)">Apply</button>
-      </div>
-      <div class="st-hint" id="bakeHint">Writes scaled levels into the schedule (not Master). Master stays for live runtime multiply.</div>
-    </div>
   </div>
   </div>
 
@@ -741,6 +724,59 @@ dialog.fr-dialog .fr-skip { padding:4px 0; background:none; border:none; color:v
 <!-- Effects -->
 <div class="card" style="margin-top:10px">
   <div class="card-hd" style="padding-bottom:4px">Effects</div>
+
+  <!-- Intensity bake -->
+  <div class="fx-card" id="intensityCard">
+    <div class="fx-main">
+      <div class="fx-info">
+        <div class="fx-name">🔆 Intensity</div>
+        <div class="fx-sub" id="intensitySub">Off</div>
+      </div>
+      <button class="fx-tog" id="intensityBtn" onclick="toggleIntensity()">OFF</button>
+    </div>
+    <div class="fx-set-toggle" onclick="toggleFxSet('intensity')">⚙ Settings ▾</div>
+    <div class="fx-settings" id="intensitySettings">
+      <div class="set-row">
+        <label class="chk-lbl">
+          <input type="checkbox" id="ixEnabled" onchange="onIntensityEnableChange()"> Enable intensity bake
+        </label>
+      </div>
+      <div class="set-row">
+        <span style="color:var(--muted);font-size:0.82rem">Scale</span>
+        <input type="number" id="ixScale" class="num-in" min="25" max="200" value="100" onchange="updateIntensityHint()">
+        <span style="color:var(--muted);font-size:0.82rem">%</span>
+      </div>
+      <div class="set-row">
+        <button type="button" class="st-btn primary" style="width:100%" onclick="applyIntensityBake()" title="Multiply stored schedule levels; ratios kept; capped at 100%">Apply to schedule</button>
+      </div>
+      <div id="intensityHint" style="font-size:0.75rem;color:var(--muted);margin:0 4px 8px"></div>
+    </div>
+  </div>
+
+  <!-- Photoperiod stretch -->
+  <div class="fx-card" id="photoperiodCard">
+    <div class="fx-main">
+      <div class="fx-info">
+        <div class="fx-name">⏱ Photoperiod</div>
+        <div class="fx-sub" id="photoperiodSub">Off</div>
+      </div>
+      <button class="fx-tog" id="photoperiodBtn" onclick="togglePhotoperiod()">OFF</button>
+    </div>
+    <div class="fx-set-toggle" onclick="toggleFxSet('photoperiod')">⚙ Settings ▾</div>
+    <div class="fx-settings" id="photoperiodSettings">
+      <div class="set-row">
+        <label class="chk-lbl">
+          <input type="checkbox" id="psEnabled" onchange="onPhotoperiodChange()"> Enable photoperiod stretch
+        </label>
+      </div>
+      <div class="set-row">
+        <span style="color:var(--muted);font-size:0.82rem">Widen by</span>
+        <input type="number" id="psWidenMins" class="num-in" min="0" max="480" step="15" value="60" onchange="onPhotoperiodChange()">
+        <span style="color:var(--muted);font-size:0.82rem">min</span>
+      </div>
+      <div id="psHint" style="font-size:0.75rem;color:var(--muted);margin:0 4px 8px"></div>
+    </div>
+  </div>
 
   <!-- Feed mode -->
   <div class="fx-card" data-cap="feed_mode">
@@ -1461,7 +1497,11 @@ let _masterDirty = false;
 let _scheduleDirty = false;
 function markScheduleDirty() { _scheduleDirty = true; }
 
-// ── Photoperiod stretch + intensity bake ─────────────────────────────────────
+
+// ── Intensity bake + Photoperiod stretch (Effects) ───────────────────────────
+let photoBaseline = null; // schedule snapshot before photoperiod stretch
+let intensityArmed = false;
+
 function _wrapHourFloat(h) {
   h = h % 24;
   if (h < 0) h += 24;
@@ -1517,8 +1557,6 @@ function _photoMetrics(rows) {
   for (let d = 0; d <= 12 + 1e-9; d += step) {
     if (_envAt(env, center + d) >= thr) right = d; else if (d > 0) break;
   }
-  // left/right are radii from centre; total lit span ≈ left + right
-  // (centre counted once via the two zero-offset samples)
   const dayHours = Math.max(step, Math.round((left + right) * 4) / 4);
   return { center, dayHours, peak };
 }
@@ -1547,7 +1585,7 @@ function stretchScheduleRows(rows, deltaHours) {
   const m = _photoMetrics(rows);
   if (m.peak <= 0 || m.dayHours <= 0) return null;
   const targetDay = Math.max(4, Math.min(20, Math.round((m.dayHours + deltaHours) * 4) / 4));
-  if (targetDay === m.dayHours) return rows.map(r => r.slice());
+  if (Math.abs(targetDay - m.dayHours) < 1e-9) return rows.map(r => r.slice());
   const dayHalf = m.dayHours / 2;
   const newDayHalf = targetDay / 2;
   const nightHalf = 12 - dayHalf;
@@ -1573,38 +1611,25 @@ function stretchScheduleRows(rows, deltaHours) {
 function _activeScheduleRows() {
   return (typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase)) ? scheduleBase : schedule;
 }
-function updatePhotoLenLabel() {
-  const el = document.getElementById('photoLenVal');
-  if (!el) return;
-  const m = _photoMetrics(_activeScheduleRows());
-  el.textContent = formatPhotoLen(m.dayHours);
-}
-function stretchPhotoperiod(deltaHours) {
+function _writeScheduleRows(next) {
   const usingBase = typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase);
-  const before = _photoMetrics(_activeScheduleRows());
-  const targetDay = before.dayHours > 0 ? Math.max(4, Math.min(20, Math.round((before.dayHours + deltaHours) * 4) / 4)) : 0;
-  const next = stretchScheduleRows(_activeScheduleRows(), deltaHours);
-  if (!next) { setErr('No photoperiod to stretch'); return; }
   if (usingBase) {
-    scheduleBase = next;
-    applyMaster();
+    scheduleBase = next.map(r => r.slice());
+    if (typeof applyMaster === 'function') applyMaster();
   } else {
-    schedule = next;
-    resetCaps();
-    buildChannelCaps();
+    schedule = next.map(r => r.slice());
+    if (typeof resetCaps === 'function') resetCaps();
+    if (typeof buildChannelCaps === 'function') buildChannelCaps();
   }
   markScheduleDirty();
-  const el = document.getElementById('photoLenVal');
-  if (el && targetDay) el.textContent = formatPhotoLen(targetDay);
-  else updatePhotoLenLabel();
-  updateBakeHint();
   if (typeof updateChart === 'function') updateChart();
   if (typeof updateColorStrip === 'function') updateColorStrip();
   if (typeof updateNowBars === 'function') updateNowBars();
   if (typeof buildNowBars === 'function') buildNowBars();
   if (typeof buildSchedTable === 'function' && document.getElementById('schedCollapse')?.classList.contains('open'))
     buildSchedTable();
-  setOk(deltaHours > 0 ? 'Photoperiod widened 15m (Push to save)' : 'Photoperiod narrowed 15m (Push to save)');
+  if (typeof syncCapSliders === 'function') syncCapSliders();
+  if (typeof syncChannelSliders === 'function') syncChannelSliders();
 }
 function schedulePeakValue() {
   let peak = 0;
@@ -1612,26 +1637,101 @@ function schedulePeakValue() {
     for (let c = 2; c < 8; c++) peak = Math.max(peak, row[c] || 0);
   return peak;
 }
-function onBakeSliderInput() {
-  const sl = document.getElementById('bakeSlider');
-  const lab = document.getElementById('bakeVal');
-  if (sl && lab) lab.textContent = parseInt(sl.value, 10) + '%';
-  updateBakeHint();
+function cloneScheduleRows(rows) {
+  return rows.map(r => r.slice());
 }
-function updateBakeHint() {
-  const hint = document.getElementById('bakeHint');
+function resetPhotoBaselineFromCurrent() {
+  photoBaseline = cloneScheduleRows(_activeScheduleRows());
+}
+function setIntensityBtn(on) {
+  intensityArmed = !!on;
+  const pill = document.getElementById('intensityPill');
+  if (pill) pill.classList.toggle('active', !!on);
+  const btn = document.getElementById('intensityBtn');
+  if (btn) {
+    btn.textContent = on ? 'ON' : 'OFF';
+    btn.className = 'fx-tog' + (on ? ' on-intensity' : '');
+  }
+  const sub = document.getElementById('intensitySub');
+  if (sub && !on) sub.textContent = 'Off';
+}
+function setPhotoperiodBtn(on) {
+  const pill = document.getElementById('photoperiodPill');
+  if (pill) pill.classList.toggle('active', !!on);
+  const btn = document.getElementById('photoperiodBtn');
+  if (btn) {
+    btn.textContent = on ? 'ON' : 'OFF';
+    btn.className = 'fx-tog' + (on ? ' on-photoperiod' : '');
+  }
+}
+function updateIntensityHint() {
+  const hint = document.getElementById('intensityHint');
   if (!hint) return;
-  const want = parseInt(document.getElementById('bakeSlider')?.value || '100', 10);
+  const want = parseInt(document.getElementById('ixScale')?.value || '100', 10);
   const peak = schedulePeakValue();
   if (peak <= 0) { hint.textContent = 'No schedule levels to bake.'; return; }
   const maxScalePct = Math.floor(10000 / peak);
   const applyScale = Math.min(want / 100, 100 / peak);
   const newPeak = Math.min(100, Math.round(peak * applyScale));
-  hint.textContent = `Peak now ${peak}% → after Apply ~${newPeak}% (max ${maxScalePct}% before 100% cap). Master is runtime-only; bake rewrites stored hours.`;
+  hint.textContent = `Peak now ${peak}% → after Apply ~${newPeak}% (max ${maxScalePct}% before 100% cap). Rewrites stored hours; Master is runtime-only.`;
+}
+function updatePhotoperiodHint() {
+  const hint = document.getElementById('psHint');
+  const sub = document.getElementById('photoperiodSub');
+  const enabled = !!document.getElementById('psEnabled')?.checked;
+  const widenMins = Math.max(0, Math.min(480, parseInt(document.getElementById('psWidenMins')?.value || '0', 10) || 0));
+  const baseRows = photoBaseline || _activeScheduleRows();
+  const base = _photoMetrics(baseRows);
+  const targetHours = base.dayHours > 0
+    ? Math.max(4, Math.min(20, Math.round((base.dayHours + widenMins / 60) * 4) / 4))
+    : 0;
+  if (hint) {
+    if (!(base.dayHours > 0)) {
+      hint.textContent = 'No photoperiod detected in the current schedule.';
+    } else if (!enabled) {
+      hint.textContent = `Scheduled bright period ${formatPhotoLen(base.dayHours)}. Enable and set minutes to widen it (shape preserved). Distinct from Seasonal Shift.`;
+    } else {
+      hint.textContent = `Scheduled ${formatPhotoLen(base.dayHours)} → ${formatPhotoLen(targetHours)} (+${widenMins} min). Whole 24h curve scales around its centre.`;
+    }
+  }
+  if (sub) {
+    sub.textContent = enabled
+      ? (widenMins > 0 ? `+${widenMins} min` : 'On · 0 min')
+      : 'Off';
+  }
+}
+function onIntensityEnableChange() {
+  const on = !!document.getElementById('ixEnabled')?.checked;
+  setIntensityBtn(on);
+  const sub = document.getElementById('intensitySub');
+  if (sub) {
+    const pct = parseInt(document.getElementById('ixScale')?.value || '100', 10);
+    sub.textContent = on ? `Ready ${pct}%` : 'Off';
+  }
+  updateIntensityHint();
+}
+function toggleIntensity() {
+  const box = document.getElementById('ixEnabled');
+  if (!box) return;
+  box.checked = !box.checked;
+  onIntensityEnableChange();
+  if (box.checked) {
+    if (typeof toggleFxSet === 'function') {
+      const el = document.getElementById('intensitySettings');
+      if (el && !el.classList.contains('open')) toggleFxSet('intensity');
+    } else if (typeof toggleFlyout === 'function') {
+      toggleFlyout('intensity');
+    }
+  }
 }
 async function applyIntensityBake() {
-  const want = parseInt(document.getElementById('bakeSlider')?.value || '100', 10);
-  if (want === 100) { setOk('Bake at 100% — no change'); return; }
+  const box = document.getElementById('ixEnabled');
+  if (box && !box.checked) {
+    box.checked = true;
+    onIntensityEnableChange();
+  }
+  const want = parseInt(document.getElementById('ixScale')?.value || '100', 10);
+  if (want === 100) { setOk('Intensity 100% — no change'); return; }
   const usingBase = typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase);
   const rows = _activeScheduleRows();
   const peak = schedulePeakValue();
@@ -1653,17 +1753,22 @@ async function applyIntensityBake() {
       channelBrightness[ch] = p > 0 ? p : 100;
     });
     if (typeof renderChannelScales === 'function') renderChannelScales();
-    applyMaster();
+    if (typeof applyMaster === 'function') applyMaster();
   } else {
     schedule = next;
-    resetCaps();
-    buildChannelCaps();
+    if (typeof resetCaps === 'function') resetCaps();
+    if (typeof buildChannelCaps === 'function') buildChannelCaps();
   }
-  const bsl = document.getElementById('bakeSlider');
-  if (bsl) bsl.value = 100;
-  onBakeSliderInput();
+  // Intensity bake replaces levels; refresh photoperiod baseline to the new schedule
+  if (document.getElementById('psEnabled')?.checked) {
+    // keep stretch relative to newly baked schedule
+    photoBaseline = cloneScheduleRows(_activeScheduleRows());
+    // re-apply current widen on top of new baseline
+    await onPhotoperiodChange();
+  } else {
+    photoBaseline = null;
+  }
   markScheduleDirty();
-  updatePhotoLenLabel();
   if (typeof updateChart === 'function') updateChart();
   if (typeof updateColorStrip === 'function') updateColorStrip();
   if (typeof updateNowBars === 'function') updateNowBars();
@@ -1671,7 +1776,67 @@ async function applyIntensityBake() {
   if (typeof syncCapSliders === 'function') syncCapSliders();
   if (typeof syncChannelSliders === 'function') syncChannelSliders();
   try { await api('POST', '/api/master', { value: 100 }); } catch (_) {}
-  setOk(`Baked ×${scale.toFixed(2)} into schedule (Master reset to 100%). Push to save.`);
+  setIntensityBtn(true);
+  const sub = document.getElementById('intensitySub');
+  if (sub) sub.textContent = `Applied ×${scale.toFixed(2)}`;
+  updateIntensityHint();
+  updatePhotoperiodHint();
+  setOk(`Intensity baked ×${scale.toFixed(2)} into schedule (Master reset to 100%). Push to save.`);
+}
+function togglePhotoperiod() {
+  const box = document.getElementById('psEnabled');
+  if (!box) return;
+  box.checked = !box.checked;
+  onPhotoperiodChange();
+  if (box.checked) {
+    if (typeof toggleFxSet === 'function') {
+      const el = document.getElementById('photoperiodSettings');
+      if (el && !el.classList.contains('open')) toggleFxSet('photoperiod');
+    } else if (typeof toggleFlyout === 'function') {
+      toggleFlyout('photoperiod');
+    }
+  }
+}
+async function onPhotoperiodChange() {
+  const enabled = !!document.getElementById('psEnabled')?.checked;
+  const widenMins = Math.max(0, Math.min(480, parseInt(document.getElementById('psWidenMins')?.value || '0', 10) || 0));
+  if (!enabled) {
+    if (photoBaseline) {
+      _writeScheduleRows(photoBaseline);
+      photoBaseline = null;
+      setOk('Photoperiod stretch off — schedule restored. Push to save.');
+    }
+    setPhotoperiodBtn(false);
+    updatePhotoperiodHint();
+    return;
+  }
+  if (!photoBaseline) resetPhotoBaselineFromCurrent();
+  const next = stretchScheduleRows(photoBaseline, widenMins / 60);
+  if (!next) {
+    setErr('No photoperiod to stretch');
+    document.getElementById('psEnabled').checked = false;
+    setPhotoperiodBtn(false);
+    photoBaseline = null;
+    updatePhotoperiodHint();
+    return;
+  }
+  _writeScheduleRows(next);
+  setPhotoperiodBtn(true);
+  updatePhotoperiodHint();
+  setOk(widenMins > 0
+    ? `Photoperiod widened by ${widenMins} min (Push to save)`
+    : 'Photoperiod stretch on · 0 min widen');
+}
+function initScheduleEffectsUI() {
+  const ix = document.getElementById('ixEnabled');
+  if (ix) ix.checked = false;
+  const ps = document.getElementById('psEnabled');
+  if (ps) ps.checked = false;
+  photoBaseline = null;
+  setIntensityBtn(false);
+  setPhotoperiodBtn(false);
+  updateIntensityHint();
+  updatePhotoperiodHint();
 }
 
 
@@ -2026,6 +2191,7 @@ async function readFromDevice() {
     schedule        = s.schedule.map(r => Array.isArray(r) ? r : Object.values(r));
     _scheduleDirty  = false;
     resetCaps();
+    initScheduleEffectsUI();
     manual          = s.manual || [0,0,0,0,0,0];
     mode            = s.mode;
     const rawPreset = s.active_preset || localStorage.getItem('k7-activePreset') || '';
