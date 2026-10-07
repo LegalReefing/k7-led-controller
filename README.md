@@ -52,11 +52,13 @@ The ESP32 controller is the full-featured option: a small board runs 24/7 beside
 - Tap any brightness percentage to type an exact value instead of dragging, plus a lock to keep the master and colour sliders from being nudged by accident while scrolling on a phone
 - Per-channel visibility toggles — hidden channels are zeroed when pushing to the device
 - Day-shift control to slide the entire schedule forward or back (e.g. peak at 18:00 instead of midday)
+- **Photoperiod stretch (Day length)** — widen or narrow the bright period while the whole 24h curve scales around its centre (shape preserved); distinct from Seasonal Shift and hour Shift
+- **Intensity bake-in** — scale all channel levels in the stored schedule (ratios kept, capped at 100%), then Apply; distinct from Master, which only multiplies at runtime
 - Save and reload your own named profiles (stored on the controller, persists across sessions)
 - Manual mode with live preview
 - **Smooth Ramp** — without Smooth Ramp the controller sends one interpolated brightness update per hour to keep the lamp in step with the schedule; enable Smooth Ramp to increase this to about every 2 minutes, only when calculated channel values change, for smoother sunrise and sunset transitions
-- **Feed mode** — timed white brightness boost for feeding; adjustable intensity (1–100 %) and duration (1–60 min); also triggered by a quick press of the BOOT button on the board
-- **Maintenance mode** — timed balanced inspection light for tank work, with adjustable profile intensity (1–100 %) and duration (1–180 min)
+- **Feed mode** — timed white brightness boost for feeding; adjustable intensity (1–100 %) and duration (1–60 min); also triggered by a quick press of the BOOT button on the board; prominent quick toggle at the top of the mobile UI
+- **Maintenance mode** — timed balanced inspection light for tank work, with adjustable profile intensity (1–100 %) and duration (1–180 min); same top-of-screen prominence as Feed on mobile
 - **Lunar** — varies the royal blue channel over the 29.5-day synodic cycle, with either a fixed nightly window or a moonrise/moonset-shifted window anchored to full-moon times, plus optional night clamping and schedule-aware cutoff
 - **Siesta** — optional midday dimming window for a coral rest/algae-control break; works with or without Smooth Ramp
 - **Acclimation** — start the whole schedule dimmer, then recover gradually over a chosen number of days

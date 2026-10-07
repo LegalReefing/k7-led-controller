@@ -402,6 +402,75 @@ body {
 .profile-save:active { background: var(--hover); }
 .profile-desc { padding: 0 14px 12px; font-size: 0.78rem; color: var(--muted); min-height: 4px; }
 
+
+/* ── Quick Feed / Maintenance (top) ── */
+.quick-fx {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+.quick-fx-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  min-height: 64px;
+}
+.quick-fx-btn .qf-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.quick-fx-btn .qf-name { font-size: 0.95rem; font-weight: 700; }
+.quick-fx-btn .qf-state {
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--surface2); color: var(--muted); border: 1px solid var(--border);
+}
+.quick-fx-btn .qf-sub { font-size: 0.72rem; color: var(--muted); min-height: 1em; }
+.quick-fx-btn.on-feed {
+  border-color: rgba(249,115,22,0.7);
+  background: rgba(249,115,22,0.12);
+}
+.quick-fx-btn.on-feed .qf-name { color: #f97316; }
+.quick-fx-btn.on-feed .qf-state {
+  border-color: rgba(249,115,22,0.6); background: rgba(249,115,22,0.18); color: #f97316;
+}
+.quick-fx-btn.on-maintenance {
+  border-color: rgba(203,213,225,0.75);
+  background: rgba(203,213,225,0.12);
+}
+.quick-fx-btn.on-maintenance .qf-name { color: var(--on-maintenance-text); }
+.quick-fx-btn.on-maintenance .qf-state {
+  border-color: rgba(203,213,225,0.65); background: rgba(203,213,225,0.16); color: var(--on-maintenance-text);
+}
+[data-theme="light"] .quick-fx-btn.on-feed .qf-name,
+[data-theme="light"] .quick-fx-btn.on-feed .qf-state { color: #c2410c; }
+
+/* ── Schedule tools (stretch / bake) ── */
+.sched-tools { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.st-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-lbl { font-size: 0.78rem; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; min-width: 72px; }
+.st-val { font-size: 0.82rem; font-variant-numeric: tabular-nums; min-width: 52px; text-align: center; }
+.st-hint { font-size: 0.72rem; color: var(--muted); line-height: 1.35; }
+.st-btn {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 6px 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.st-btn:active { background: var(--hover); }
+.st-btn.primary { background: #238636; border-color: #2ea043; color: #fff; }
+.st-slider { flex: 1; min-width: 100px; height: 6px; accent-color: #c9d1d9; }
+
 /* ── Fixed action bar ── */
 .action-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
@@ -498,6 +567,27 @@ dialog.fr-dialog .fr-skip { padding:4px 0; background:none; border:none; color:v
   <span class="mode-lbl on" id="lblAuto">Schedule</span>
 </div>
 
+
+<!-- Quick Feed / Maintenance — top prominence -->
+<div class="quick-fx" id="quickFxRow">
+  <button type="button" class="quick-fx-btn" id="quickFeedBtn" data-cap="feed_mode"
+          onclick="toggleFeed()" title="Temporarily boost white for feeding">
+    <div class="qf-top">
+      <span class="qf-name">🍽 Feed</span>
+      <span class="qf-state" id="quickFeedState">OFF</span>
+    </div>
+    <div class="qf-sub" id="quickFeedSub">Tap to start</div>
+  </button>
+  <button type="button" class="quick-fx-btn" id="quickMaintBtn" data-cap="maintenance_mode"
+          onclick="toggleMaintenance()" title="Balanced inspection light for tank work">
+    <div class="qf-top">
+      <span class="qf-name">🛠 Maintenance</span>
+      <span class="qf-state" id="quickMaintState">OFF</span>
+    </div>
+    <div class="qf-sub" id="quickMaintSub">Tap to start</div>
+  </button>
+</div>
+
 <div class="mode-ramp" data-cap="smooth_ramp">
   <div class="fx-card">
     <div class="fx-main">
@@ -535,6 +625,27 @@ dialog.fr-dialog .fr-skip { padding:4px 0; background:none; border:none; color:v
     </div>
     <div id="chanCaps"></div>
     <div class="cap-note">Master applies live. Colour caps apply when you tap Push to Lamp. Tap 🔒 to adjust.</div>
+
+  <div class="sched-tools" id="schedTools">
+    <div>
+      <div class="st-row">
+        <span class="st-lbl">Day length</span>
+        <button type="button" class="st-btn" onclick="stretchPhotoperiod(-1)" title="Narrow photoperiod by 1 hour">−1h</button>
+        <span class="st-val" id="photoLenVal">—</span>
+        <button type="button" class="st-btn" onclick="stretchPhotoperiod(+1)" title="Widen photoperiod by 1 hour">+1h</button>
+      </div>
+      <div class="st-hint">Widens or narrows the bright period; whole 24h curve scales around its centre (shape kept). Different from Seasonal Shift / hour Shift.</div>
+    </div>
+    <div>
+      <div class="st-row">
+        <span class="st-lbl">Bake</span>
+        <input type="range" id="bakeSlider" class="st-slider" min="25" max="200" value="100" oninput="onBakeSliderInput()">
+        <span class="st-val" id="bakeVal">100%</span>
+        <button type="button" class="st-btn primary" onclick="applyIntensityBake()" title="Multiply stored schedule levels (ratios kept; capped at 100%)">Apply</button>
+      </div>
+      <div class="st-hint" id="bakeHint">Writes scaled levels into the schedule (not Master). Master stays for live runtime multiply.</div>
+    </div>
+  </div>
   </div>
 
   <div class="card" style="margin-top:10px">
@@ -1349,6 +1460,204 @@ let _masterDirty = false;
 // with /api/state. Cleared only on successful pushSchedule() and readFromDevice().
 let _scheduleDirty = false;
 function markScheduleDirty() { _scheduleDirty = true; }
+
+// ── Photoperiod stretch + intensity bake ─────────────────────────────────────
+function _wrapHourFloat(h) {
+  h = h % 24;
+  if (h < 0) h += 24;
+  return h;
+}
+function _signedHourDelta(a, b) {
+  let d = a - b;
+  while (d > 12) d -= 24;
+  while (d < -12) d += 24;
+  return d;
+}
+function _schedEnvelope(rows) {
+  return rows.map(row => {
+    let s = 0;
+    for (let i = 2; i < 8; i++) s += (row[i] || 0);
+    return s;
+  });
+}
+function _photoMetrics(rows) {
+  const env = _schedEnvelope(rows);
+  const peak = Math.max(0, ...env);
+  if (peak <= 0) return { center: 12, dayHours: 0, peak: 0 };
+  const thr = peak * 0.15;
+  let cos = 0, sin = 0;
+  for (let h = 0; h < 24; h++) {
+    if (env[h] <= 0) continue;
+    const ang = (h / 24) * Math.PI * 2;
+    cos += env[h] * Math.cos(ang);
+    sin += env[h] * Math.sin(ang);
+  }
+  let center = 12;
+  if (cos !== 0 || sin !== 0) {
+    let a = Math.atan2(sin, cos);
+    if (a < 0) a += Math.PI * 2;
+    center = (a / (Math.PI * 2)) * 24;
+  } else {
+    let peakH = 0;
+    for (let h = 1; h < 24; h++) if (env[h] > env[peakH]) peakH = h;
+    center = peakH;
+  }
+  let left = 0, right = 0;
+  for (let step = 0; step <= 12; step++) {
+    const hL = Math.floor(_wrapHourFloat(center - step)) % 24;
+    if (env[hL] >= thr) left = step; else if (step > 0) break;
+  }
+  for (let step = 0; step <= 12; step++) {
+    const hR = Math.floor(_wrapHourFloat(center + step)) % 24;
+    if (env[hR] >= thr) right = step; else if (step > 0) break;
+  }
+  return { center, dayHours: Math.max(1, left + right + 1), peak };
+}
+function _interpSchedRow(rows, hourFloat) {
+  const hf = _wrapHourFloat(hourFloat);
+  const h0 = Math.floor(hf) % 24;
+  const h1 = (h0 + 1) % 24;
+  const frac = hf - Math.floor(hf);
+  const out = [h0, rows[h0][1] || 0];
+  for (let c = 2; c < 8; c++) {
+    const a = rows[h0][c] || 0;
+    const b = rows[h1][c] || 0;
+    out.push(Math.max(0, Math.min(100, Math.round(a + (b - a) * frac))));
+  }
+  return out;
+}
+function stretchScheduleRows(rows, deltaHours) {
+  const m = _photoMetrics(rows);
+  if (m.peak <= 0 || m.dayHours <= 0) return null;
+  const targetDay = Math.max(4, Math.min(20, m.dayHours + deltaHours));
+  if (targetDay === m.dayHours) return rows.map(r => r.slice());
+  const dayHalf = m.dayHours / 2;
+  const newDayHalf = targetDay / 2;
+  const nightHalf = 12 - dayHalf;
+  const newNightHalf = 12 - newDayHalf;
+  const out = [];
+  for (let h = 0; h < 24; h++) {
+    const offset = _signedHourDelta(h + 0.0, m.center);
+    let srcOffset;
+    if (Math.abs(offset) <= newDayHalf + 1e-9) {
+      srcOffset = newDayHalf > 0 ? offset * (dayHalf / newDayHalf) : 0;
+    } else {
+      const sign = offset >= 0 ? 1 : -1;
+      const nightPos = Math.abs(offset) - newDayHalf;
+      const srcNight = newNightHalf > 1e-9 ? nightPos * (nightHalf / newNightHalf) : nightPos;
+      srcOffset = sign * (dayHalf + srcNight);
+    }
+    const row = _interpSchedRow(rows, m.center + srcOffset);
+    row[0] = h;
+    out.push(row);
+  }
+  return out;
+}
+function _activeScheduleRows() {
+  return (typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase)) ? scheduleBase : schedule;
+}
+function updatePhotoLenLabel() {
+  const el = document.getElementById('photoLenVal');
+  if (!el) return;
+  const m = _photoMetrics(_activeScheduleRows());
+  el.textContent = m.dayHours > 0 ? `~${m.dayHours}h` : '—';
+}
+function stretchPhotoperiod(deltaHours) {
+  const usingBase = typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase);
+  const before = _photoMetrics(_activeScheduleRows());
+  const targetDay = before.dayHours > 0 ? Math.max(4, Math.min(20, before.dayHours + deltaHours)) : 0;
+  const next = stretchScheduleRows(_activeScheduleRows(), deltaHours);
+  if (!next) { setErr('No photoperiod to stretch'); return; }
+  if (usingBase) {
+    scheduleBase = next;
+    applyMaster();
+  } else {
+    schedule = next;
+    resetCaps();
+    buildChannelCaps();
+  }
+  markScheduleDirty();
+  const el = document.getElementById('photoLenVal');
+  if (el && targetDay) el.textContent = `~${targetDay}h`;
+  else updatePhotoLenLabel();
+  updateBakeHint();
+  if (typeof updateChart === 'function') updateChart();
+  if (typeof updateColorStrip === 'function') updateColorStrip();
+  if (typeof updateNowBars === 'function') updateNowBars();
+  if (typeof buildNowBars === 'function') buildNowBars();
+  if (typeof buildSchedTable === 'function' && document.getElementById('schedCollapse')?.classList.contains('open'))
+    buildSchedTable();
+  setOk(deltaHours > 0 ? 'Photoperiod widened (Push to save)' : 'Photoperiod narrowed (Push to save)');
+}
+function schedulePeakValue() {
+  let peak = 0;
+  for (const row of _activeScheduleRows())
+    for (let c = 2; c < 8; c++) peak = Math.max(peak, row[c] || 0);
+  return peak;
+}
+function onBakeSliderInput() {
+  const sl = document.getElementById('bakeSlider');
+  const lab = document.getElementById('bakeVal');
+  if (sl && lab) lab.textContent = parseInt(sl.value, 10) + '%';
+  updateBakeHint();
+}
+function updateBakeHint() {
+  const hint = document.getElementById('bakeHint');
+  if (!hint) return;
+  const want = parseInt(document.getElementById('bakeSlider')?.value || '100', 10);
+  const peak = schedulePeakValue();
+  if (peak <= 0) { hint.textContent = 'No schedule levels to bake.'; return; }
+  const maxScalePct = Math.floor(10000 / peak);
+  const applyScale = Math.min(want / 100, 100 / peak);
+  const newPeak = Math.min(100, Math.round(peak * applyScale));
+  hint.textContent = `Peak now ${peak}% → after Apply ~${newPeak}% (max ${maxScalePct}% before 100% cap). Master is runtime-only; bake rewrites stored hours.`;
+}
+async function applyIntensityBake() {
+  const want = parseInt(document.getElementById('bakeSlider')?.value || '100', 10);
+  if (want === 100) { setOk('Bake at 100% — no change'); return; }
+  const usingBase = typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase);
+  const rows = _activeScheduleRows();
+  const peak = schedulePeakValue();
+  if (peak <= 0) { setErr('No schedule levels to bake'); return; }
+  const scale = Math.min(want / 100, 100 / peak);
+  const next = rows.map(row => {
+    const r = [row[0], row[1]];
+    for (let c = 2; c < 8; c++) r.push(Math.max(0, Math.min(100, Math.round((row[c] || 0) * scale))));
+    return r;
+  });
+  masterBrightness = 100;
+  const msl = document.getElementById('masterSlider'); if (msl) msl.value = 100;
+  const mv = document.getElementById('masterVal'); if (mv) mv.textContent = '100%';
+  if (usingBase) {
+    scheduleBase = next;
+    const chsList = DEVICES[cfg.device].channels;
+    chsList.forEach((ch, ci) => {
+      const p = Math.max(0, ...scheduleBase.map(row => row[2 + ci]));
+      channelBrightness[ch] = p > 0 ? p : 100;
+    });
+    if (typeof renderChannelScales === 'function') renderChannelScales();
+    applyMaster();
+  } else {
+    schedule = next;
+    resetCaps();
+    buildChannelCaps();
+  }
+  const bsl = document.getElementById('bakeSlider');
+  if (bsl) bsl.value = 100;
+  onBakeSliderInput();
+  markScheduleDirty();
+  updatePhotoLenLabel();
+  if (typeof updateChart === 'function') updateChart();
+  if (typeof updateColorStrip === 'function') updateColorStrip();
+  if (typeof updateNowBars === 'function') updateNowBars();
+  if (typeof buildNowBars === 'function') buildNowBars();
+  if (typeof syncCapSliders === 'function') syncCapSliders();
+  if (typeof syncChannelSliders === 'function') syncChannelSliders();
+  try { await api('POST', '/api/master', { value: 100 }); } catch (_) {}
+  setOk(`Baked ×${scale.toFixed(2)} into schedule (Master reset to 100%). Push to save.`);
+}
+
+
 function isScheduleEditBusy() {
   if (_scheduleDirty) return true;
   // Hour-sheet open (editing one hour's channels)
@@ -1891,14 +2200,30 @@ let maintenanceRemaining = 0;
 
 function setFeedBtn(on) {
   const b = document.getElementById('feedBtn');
-  b.textContent = on ? 'ON' : 'OFF';
-  b.className = 'fx-tog' + (on ? ' on-feed' : '');
+  if (b) {
+    b.textContent = on ? 'ON' : 'OFF';
+    b.className = 'fx-tog' + (on ? ' on-feed' : '');
+  }
+  const qb = document.getElementById('quickFeedBtn');
+  if (qb) {
+    qb.classList.toggle('on-feed', !!on);
+    const st = document.getElementById('quickFeedState');
+    if (st) st.textContent = on ? 'ON' : 'OFF';
+  }
 }
 
 function setMaintenanceBtn(on) {
   const b = document.getElementById('maintenanceBtn');
-  b.textContent = on ? 'ON' : 'OFF';
-  b.className = 'fx-tog' + (on ? ' on-maintenance' : '');
+  if (b) {
+    b.textContent = on ? 'ON' : 'OFF';
+    b.className = 'fx-tog' + (on ? ' on-maintenance' : '');
+  }
+  const qb = document.getElementById('quickMaintBtn');
+  if (qb) {
+    qb.classList.toggle('on-maintenance', !!on);
+    const st = document.getElementById('quickMaintState');
+    if (st) st.textContent = on ? 'ON' : 'OFF';
+  }
 }
 
 function setSiestaBtn(on) {
@@ -1920,19 +2245,25 @@ function setSeasonalBtn(on) {
 }
 
 function updateFeedSub(secs) {
+  const text = secs <= 0 ? 'Inactive' : (() => {
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return `${m}:${String(s).padStart(2,'0')} remaining`;
+  })();
   const sub = document.getElementById('feedSub');
-  if (!sub) return;
-  if (secs <= 0) { sub.textContent = 'Inactive'; return; }
-  const m = Math.floor(secs / 60), s = secs % 60;
-  sub.textContent = `${m}:${String(s).padStart(2,'0')} remaining`;
+  if (sub) sub.textContent = secs <= 0 ? 'Inactive' : text;
+  const q = document.getElementById('quickFeedSub');
+  if (q) q.textContent = secs <= 0 ? 'Tap to start' : text;
 }
 
 function updateMaintenanceSub(secs, intensity) {
+  const text = secs <= 0 ? 'Off' : (() => {
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return `${m}:${String(s).padStart(2,'0')} remaining · ${intensity ?? 70}%`;
+  })();
   const sub = document.getElementById('maintenanceSub');
-  if (!sub) return;
-  if (secs <= 0) { sub.textContent = 'Off'; return; }
-  const m = Math.floor(secs / 60), s = secs % 60;
-  sub.textContent = `${m}:${String(s).padStart(2,'0')} remaining · ${intensity ?? 70}%`;
+  if (sub) sub.textContent = text;
+  const q = document.getElementById('quickMaintSub');
+  if (q) q.textContent = secs <= 0 ? 'Tap to start' : text;
 }
 
 function startFeedCountdown(secs) {
