@@ -13,6 +13,8 @@ An unofficial web-based controller for **Noo-Psyche K7 Mini** and **K7 Pro** LED
 
 > This is an independent, community-developed project. It is not affiliated with or endorsed by Noo-Psyche.
 
+> **Community fork note:** The original author and maintainer of k7-led-controller is **[bitbarista](https://github.com/bitbarista)** ([upstream repo](https://github.com/bitbarista/k7-led-controller)). This repository is a community fork by **LegalReefing**. LegalReefing contributed fixes for schedule-edit overwrite bugs (mobile poll clobbering local edits; desktop lunar/siesta forcing Effective Today on refresh; PC Bridge baking effects into the saved schedule) — see [PR #9](https://github.com/bitbarista/k7-led-controller/pull/9). We are fix contributors, not the original developers.
+
 <div align="center">
 <img src="docs/screenshot.png" alt="K7 LED Controller UI" width="90%">
 <br><em>ESP32 Controller — browser UI served from the board</em>
