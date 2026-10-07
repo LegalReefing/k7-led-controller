@@ -52,7 +52,7 @@ The ESP32 controller is the full-featured option: a small board runs 24/7 beside
 - Tap any brightness percentage to type an exact value instead of dragging, plus a lock to keep the master and colour sliders from being nudged by accident while scrolling on a phone
 - Per-channel visibility toggles — hidden channels are zeroed when pushing to the device
 - Day-shift control to slide the entire schedule forward or back (e.g. peak at 18:00 instead of midday)
-- **Photoperiod** (Effects) — On/Off like Seasonal Shift; enter minutes to widen the bright period from the scheduled length (shape preserved); distinct from Seasonal Shift and hour Shift
+- **Photoperiod** (Effects) — On/Off like Seasonal Shift; enter minutes to increase day length, then Apply — widens symmetrically around the schedule peak intensity; distinct from Seasonal Shift and hour Shift
 - **Intensity** (Effects) — On/Off bake control; set a scale % and Apply to rewrite stored schedule levels (ratios kept, capped at 100%); distinct from Master, which only multiplies at runtime
 - Save and reload your own named profiles (stored on the controller, persists across sessions)
 - Manual mode with live preview
