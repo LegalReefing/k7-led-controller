@@ -14,6 +14,8 @@ An unofficial web-based controller for **Noo-Psyche K7 Mini** and **K7 Pro** LED
 > This is an independent, community-developed project. It is not affiliated with or endorsed by Noo-Psyche.
 
 > **Community fork note:** The original author and maintainer of k7-led-controller is **[bitbarista](https://github.com/bitbarista)** ([upstream repo](https://github.com/bitbarista/k7-led-controller)). This repository is a community fork by **LegalReefing**. LegalReefing contributed fixes for schedule-edit overwrite bugs (mobile poll clobbering local edits; desktop lunar/siesta forcing Effective Today on refresh; PC Bridge baking effects into the saved schedule) — see [PR #9](https://github.com/bitbarista/k7-led-controller/pull/9). We are fix contributors, not the original developers.
+>
+> **Use the official docs:** follow bitbarista's hosted setup guide and flasher — [Setup Guide](https://bitbarista.github.io/k7-led-controller/guide.html) · [Flash Firmware](https://bitbarista.github.io/k7-led-controller/flash.html). Do not rely on fork-only paths for instructions.
 
 <div align="center">
 <img src="docs/screenshot.png" alt="K7 LED Controller UI" width="90%">
@@ -83,7 +85,9 @@ Either board draws ~80 mA and can run from any USB phone charger.
 
 ## Documentation
 
-Full setup and usage guide: **[bitbarista.github.io/k7-led-controller/guide.html](https://bitbarista.github.io/k7-led-controller/guide.html)**
+**Official setup & usage guide (bitbarista):** **[bitbarista.github.io/k7-led-controller/guide.html](https://bitbarista.github.io/k7-led-controller/guide.html)**
+
+Browser flasher: **[bitbarista.github.io/k7-led-controller/flash.html](https://bitbarista.github.io/k7-led-controller/flash.html)**
 
 ## Support
 
