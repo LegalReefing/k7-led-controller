@@ -556,14 +556,17 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		lunar.Enabled = false
 		lunar.Active = false
 	}
-	schedule = bakePCBridgeEffects(schedule, siesta, lunar)
-	manualForLamp, scheduleForLamp := applyMasterToLampState(manual, schedule, master)
+	// Keep the unbaked schedule for persisted state /api/state so the UI can
+	// re-edit the base after Push. Bake + master-scale only the lamp copy.
+	unbaked := schedule
+	baked := bakePCBridgeEffects(unbaked, siesta, lunar)
+	manualForLamp, scheduleForLamp := applyMasterToLampState(manual, baked, master)
 
 	if err := s.client().PushSchedule(manualForLamp, scheduleForLamp, autoMode); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if err := s.savePushedState(manualForLamp, scheduleForLamp, autoMode, in.ActivePreset, presetDisablesLunar(in.ActivePreset)); err != nil {
+	if err := s.savePushedState(manual, unbaked, autoMode, in.ActivePreset, presetDisablesLunar(in.ActivePreset)); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Save state failed: %v", err))
 		return
 	}
