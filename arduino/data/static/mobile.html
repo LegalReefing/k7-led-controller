@@ -775,7 +775,7 @@ dialog.fr-dialog .fr-skip { padding:4px 0; background:none; border:none; color:v
         <span style="color:var(--muted);font-size:0.82rem">min</span>
       </div>
       <div class="set-row">
-        <button type="button" class="st-btn primary" style="width:100%" onclick="applyPhotoperiodStretch()" title="Widen the peak period symmetrically around highest intensity">Apply to schedule</button>
+        <button type="button" class="st-btn primary" style="width:100%" onclick="applyPhotoperiodStretch()" title="Widen the peak plateau (sum of channels at max) only; ramps unchanged">Apply to schedule</button>
       </div>
       <div id="psHint" style="font-size:0.75rem;color:var(--muted);margin:0 4px 8px"></div>
     </div>
@@ -1502,7 +1502,18 @@ function markScheduleDirty() { _scheduleDirty = true; }
 
 
 // ── Intensity bake + Photoperiod stretch (Effects) ───────────────────────────
-let photoBaseline = null; // schedule snapshot before photoperiod stretch
+// Intensity keeps intensityBaseline (pre-bake schedule) and always scales FROM it.
+// Photoperiod keeps photoBaseline and widens only the peak plateau (sum-of-channels
+// at its maximum until decline). Ramp-up / ramp-down durations are preserved.
+// Order: Intensity baseline is the pre-intensity schedule. If Photoperiod is already
+// on, Intensity prefers photoBaseline (unstretched) so levels bake cleanly, then
+// Photoperiod re-applies from the intensity-scaled rows. Off on either restores
+// that effect's own baseline; Intensity Off while Photoperiod stays on re-stretches
+// from the restored original.
+// Chart ghost: one neutral dashed composite of effectsGhostRows() while either
+// baseline is active and differs from the current schedule.
+let photoBaseline = null; // schedule snapshot before photoperiod plateau widen
+let intensityBaseline = null; // schedule snapshot before intensity bake
 let intensityArmed = false;
 
 function _wrapHourFloat(h) {
@@ -1530,47 +1541,79 @@ function _envAt(env, hourFloat) {
   const frac = hf - Math.floor(hf);
   return (env[h0] || 0) + ((env[h1] || 0) - (env[h0] || 0)) * frac;
 }
-function _peakIntensityCenter(env) {
-  // Centre on the hour(s) of highest overall channel intensity (sum of channels).
-  // If several hours tie near the peak, use the midpoint of that plateau.
+function _peakPlateauBounds(env) {
+  // Plateau = hours where sum-of-channels equals the daily maximum, from first
+  // reaching that max until the sum begins to decline.
   let peakH = 0;
   for (let h = 1; h < 24; h++) if ((env[h] || 0) > (env[peakH] || 0)) peakH = h;
   const peakVal = env[peakH] || 0;
-  if (peakVal <= 0) return 12;
-  const near = peakVal * 0.99;
+  if (peakVal <= 0) return { lo: 0, hi: 0, center: 12, peakVal: 0, plateauHours: 0 };
   let lo = peakH, hi = peakH;
   while (true) {
     const n = (lo - 1 + 24) % 24;
-    if (n === hi || (env[n] || 0) < near) break;
+    if (n === hi || (env[n] || 0) < peakVal) break;
     if (((hi - n + 24) % 24) >= 23) break;
     lo = n;
   }
   while (true) {
     const n = (hi + 1) % 24;
-    if (n === lo || (env[n] || 0) < near) break;
+    if (n === lo || (env[n] || 0) < peakVal) break;
     if (((n - lo + 24) % 24) >= 23) break;
     hi = n;
   }
-  if (lo <= hi) return (lo + hi) / 2;
-  const span = (hi + 24 - lo) + 1;
-  return _wrapHourFloat(lo + (span - 1) / 2);
+  let plateauHours, center;
+  if (lo <= hi) {
+    plateauHours = (hi - lo) + 1;
+    center = (lo + hi) / 2;
+  } else {
+    plateauHours = (hi + 24 - lo) + 1;
+    center = _wrapHourFloat(lo + (plateauHours - 1) / 2);
+  }
+  return { lo, hi, center, peakVal, plateauHours };
+}
+function _peakIntensityCenter(env) {
+  return _peakPlateauBounds(env).center;
 }
 function _photoMetrics(rows) {
   const env = _schedEnvelope(rows);
-  const peak = Math.max(0, ...env);
-  if (peak <= 0) return { center: 12, dayHours: 0, peak: 0, peakHour: 12 };
-  const center = _peakIntensityCenter(env);
-  const thr = peak * 0.15;
+  const plat = _peakPlateauBounds(env);
+  if (plat.peakVal <= 0) {
+    return {
+      center: 12, plateauHours: 0, dayHours: 0, peak: 0, peakHour: 12,
+      platLeft: 0, platRight: 0, rampUpHours: 0, rampDownHours: 0
+    };
+  }
+  const center = plat.center;
   const step = 0.25;
-  let left = 0, right = 0;
+  let platLeft = 0, platRight = 0;
   for (let d = 0; d <= 12 + 1e-9; d += step) {
-    if (_envAt(env, center - d) >= thr) left = d; else if (d > 0) break;
+    if (_envAt(env, center - d) >= plat.peakVal - 1e-9) platLeft = d; else if (d > 0) break;
   }
   for (let d = 0; d <= 12 + 1e-9; d += step) {
-    if (_envAt(env, center + d) >= thr) right = d; else if (d > 0) break;
+    if (_envAt(env, center + d) >= plat.peakVal - 1e-9) platRight = d; else if (d > 0) break;
   }
-  const dayHours = Math.max(step, Math.round((left + right) * 4) / 4);
-  return { center, dayHours, peak, peakHour: Math.round(center * 4) / 4 };
+  const dayThr = plat.peakVal * 0.15;
+  let dayLeft = 0, dayRight = 0;
+  for (let d = 0; d <= 12 + 1e-9; d += step) {
+    if (_envAt(env, center - d) >= dayThr) dayLeft = d; else if (d > 0) break;
+  }
+  for (let d = 0; d <= 12 + 1e-9; d += step) {
+    if (_envAt(env, center + d) >= dayThr) dayRight = d; else if (d > 0) break;
+  }
+  // Prefer discrete hour-count at exact channel-sum max (matches Apply math).
+  const plateauHours = Math.max(step, plat.plateauHours || Math.round((platLeft + platRight) * 4) / 4);
+  const dayHours = Math.max(plateauHours, Math.round((dayLeft + dayRight) * 4) / 4);
+  return {
+    center,
+    plateauHours,
+    dayHours,
+    peak: plat.peakVal,
+    peakHour: Math.round(center * 4) / 4,
+    platLeft,
+    platRight,
+    rampUpHours: Math.max(0, dayLeft - platLeft),
+    rampDownHours: Math.max(0, dayRight - platRight)
+  };
 }
 function formatPhotoLen(hours) {
   if (!(hours > 0)) return '—';
@@ -1593,28 +1636,81 @@ function _interpSchedRow(rows, hourFloat) {
   }
   return out;
 }
+function _hourInInclusiveSpan(h, lo, hi) {
+  // Inclusive hour indices; supports wrap (lo > hi).
+  h = ((h % 24) + 24) % 24;
+  lo = ((lo % 24) + 24) % 24;
+  hi = ((hi % 24) + 24) % 24;
+  if (lo <= hi) return h >= lo && h <= hi;
+  return h >= lo || h <= hi;
+}
+function _mapPhotoSide(absOffset, newPlat, oldPlat, rampLen) {
+  const newDayEdge = newPlat + rampLen;
+  const oldDayEdge = oldPlat + rampLen;
+  if (absOffset <= newPlat + 1e-9) {
+    return newPlat > 1e-9 ? absOffset * (oldPlat / newPlat) : 0;
+  }
+  if (absOffset <= newDayEdge + 1e-9) {
+    return oldPlat + (absOffset - newPlat);
+  }
+  const newNight = Math.max(0, 12 - newDayEdge);
+  const oldNight = Math.max(0, 12 - oldDayEdge);
+  const nightPos = absOffset - newDayEdge;
+  const srcNight = newNight > 1e-9 ? nightPos * (oldNight / Math.max(newNight, 1e-9)) : nightPos;
+  return oldDayEdge + srcNight;
+}
 function stretchScheduleRows(rows, deltaHours) {
+  // Widen only the peak plateau: hours where sum-of-channels equals the daily
+  // max, until it declines. Added time becomes extra peak-hour slots; ramp-up
+  // and ramp-down keep their durations and are shifted outward.
+  const env = _schedEnvelope(rows);
+  const plat = _peakPlateauBounds(env);
+  if (plat.peakVal <= 0) return null;
   const m = _photoMetrics(rows);
-  if (m.peak <= 0 || m.dayHours <= 0) return null;
-  const targetDay = Math.max(4, Math.min(20, Math.round((m.dayHours + deltaHours) * 4) / 4));
-  if (Math.abs(targetDay - m.dayHours) < 1e-9) return rows.map(r => r.slice());
-  const dayHalf = m.dayHours / 2;
-  const newDayHalf = targetDay / 2;
-  const nightHalf = 12 - dayHalf;
-  const newNightHalf = 12 - newDayHalf;
+  const oldCount = plat.plateauHours;
+  let add = Math.max(0, deltaHours);
+  const maxAdd = Math.max(0, 20 - (oldCount + m.rampUpHours + m.rampDownHours));
+  add = Math.min(add, maxAdd);
+  const addQ = Math.round(add * 4) / 4;
+  if (addQ < 1e-9) return rows.map(r => r.slice());
+
+  // Whole hours expand the discrete peak span (hourly schedule grid).
+  const nAdd = Math.round(addQ);
+  const leftAdd = Math.floor(nAdd / 2);
+  const rightAdd = nAdd - leftAdd;
+  let newLo = plat.lo - leftAdd;
+  let newHi = plat.hi + rightAdd;
+  while (newHi - newLo + 1 > 20) {
+    if (rightAdd >= leftAdd) newHi--;
+    else newLo++;
+  }
+  // Peak row sample from the middle of the old plateau.
+  const peakRow = _interpSchedRow(rows, plat.center);
+
+  // Ramp lengths in hours (from metrics); shift with the new plateau edges.
+  const rampUp = m.rampUpHours;
+  const rampDown = m.rampDownHours;
+  // Old plateau edges as floats (inclusive hour hi → end at hi+0.5 from center math).
+  const oldLeft = m.platLeft;
+  const oldRight = m.platRight;
+  const newLeft = oldLeft + addQ / 2;
+  const newRight = oldRight + addQ / 2;
+
   const out = [];
   for (let h = 0; h < 24; h++) {
-    const offset = _signedHourDelta(h + 0.0, m.center);
-    let srcOffset;
-    if (Math.abs(offset) <= newDayHalf + 1e-9) {
-      srcOffset = newDayHalf > 0 ? offset * (dayHalf / newDayHalf) : 0;
+    let row;
+    if (_hourInInclusiveSpan(h, newLo, newHi)) {
+      row = peakRow.slice();
     } else {
-      const sign = offset >= 0 ? 1 : -1;
-      const nightPos = Math.abs(offset) - newDayHalf;
-      const srcNight = newNightHalf > 1e-9 ? nightPos * (nightHalf / newNightHalf) : nightPos;
-      srcOffset = sign * (dayHalf + srcNight);
+      const offset = _signedHourDelta(h + 0.0, m.center);
+      let srcOffset;
+      if (offset < 0) {
+        srcOffset = -_mapPhotoSide(-offset, newLeft, oldLeft, rampUp);
+      } else {
+        srcOffset = _mapPhotoSide(offset, newRight, oldRight, rampDown);
+      }
+      row = _interpSchedRow(rows, m.center + srcOffset);
     }
-    const row = _interpSchedRow(rows, m.center + srcOffset);
     row[0] = h;
     out.push(row);
   }
@@ -1643,17 +1739,108 @@ function _writeScheduleRows(next) {
   if (typeof syncCapSliders === 'function') syncCapSliders();
   if (typeof syncChannelSliders === 'function') syncChannelSliders();
 }
-function schedulePeakValue() {
+function _channelPeak(rows) {
   let peak = 0;
-  for (const row of _activeScheduleRows())
+  for (const row of rows)
     for (let c = 2; c < 8; c++) peak = Math.max(peak, row[c] || 0);
   return peak;
+}
+function schedulePeakValue() {
+  return _channelPeak(intensityBaseline || _activeScheduleRows());
 }
 function cloneScheduleRows(rows) {
   return rows.map(r => r.slice());
 }
 function resetPhotoBaselineFromCurrent() {
   photoBaseline = cloneScheduleRows(_activeScheduleRows());
+}
+function _captureIntensityBaseline() {
+  if (photoBaseline) intensityBaseline = cloneScheduleRows(photoBaseline);
+  else intensityBaseline = cloneScheduleRows(_activeScheduleRows());
+}
+function effectsGhostRows() {
+  // Earliest original: intensity baseline if present, else photoperiod baseline.
+  if (intensityBaseline) return intensityBaseline;
+  if (photoBaseline) return photoBaseline;
+  return null;
+}
+function _schedRowsEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let h = 0; h < a.length; h++) {
+    for (let c = 2; c < 8; c++) {
+      if ((a[h][c] || 0) !== (b[h][c] || 0)) return false;
+    }
+  }
+  return true;
+}
+function effectsGhostCompositeData() {
+  // One neutral outline: mean of channel levels per hour (matches chart scale ~0-100).
+  const ghost = effectsGhostRows();
+  if (!ghost) return null;
+  if (_schedRowsEqual(ghost, _activeScheduleRows())) return null;
+  const nCh = 6;
+  return ghost.map(row => {
+    let s = 0;
+    for (let c = 2; c < 8; c++) s += (row[c] || 0);
+    return Math.round(s / nCh);
+  });
+}
+function effectsGhostDataset(light) {
+  const data = effectsGhostCompositeData();
+  if (!data) return null;
+  return {
+    label: 'Original',
+    data,
+    borderColor: light ? 'rgba(100,116,139,0.85)' : 'rgba(226,232,240,0.75)',
+    backgroundColor: 'transparent',
+    fill: false,
+    tension: 0.35,
+    borderDash: [6, 4],
+    borderWidth: 2,
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    order: 0,
+  };
+}
+function _scaleRowsFromBaseline(rows, wantPct) {
+  const peak = _channelPeak(rows);
+  if (peak <= 0) return { next: null, scale: 1, peak: 0 };
+  const scale = Math.min(wantPct / 100, 100 / peak);
+  const next = rows.map(row => {
+    const r = [row[0], row[1]];
+    for (let c = 2; c < 8; c++) r.push(Math.max(0, Math.min(100, Math.round((row[c] || 0) * scale))));
+    return r;
+  });
+  return { next, scale, peak };
+}
+function _afterIntensityWrite(next) {
+  const usingBase = typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase);
+  masterBrightness = 100;
+  const msl = document.getElementById('masterSlider'); if (msl) msl.value = 100;
+  const mv = document.getElementById('masterVal'); if (mv) mv.textContent = '100%';
+  if (usingBase) {
+    scheduleBase = next.map(r => r.slice());
+    try {
+      const chsList = DEVICES[cfg.device].channels;
+      chsList.forEach((ch, ci) => {
+        const p = Math.max(0, ...scheduleBase.map(row => row[2 + ci]));
+        channelBrightness[ch] = p > 0 ? p : 100;
+      });
+    } catch (_) {}
+    if (typeof renderChannelScales === 'function') renderChannelScales();
+    if (typeof applyMaster === 'function') applyMaster();
+  } else {
+    schedule = next.map(r => r.slice());
+    if (typeof resetCaps === 'function') resetCaps();
+    if (typeof buildChannelCaps === 'function') buildChannelCaps();
+  }
+  markScheduleDirty();
+  if (typeof updateChart === 'function') updateChart();
+  if (typeof updateColorStrip === 'function') updateColorStrip();
+  if (typeof updateNowBars === 'function') updateNowBars();
+  if (typeof buildNowBars === 'function') buildNowBars();
+  if (typeof syncCapSliders === 'function') syncCapSliders();
+  if (typeof syncChannelSliders === 'function') syncChannelSliders();
 }
 function setIntensityBtn(on) {
   intensityArmed = !!on;
@@ -1685,7 +1872,8 @@ function updateIntensityHint() {
   const maxScalePct = Math.floor(10000 / peak);
   const applyScale = Math.min(want / 100, 100 / peak);
   const newPeak = Math.min(100, Math.round(peak * applyScale));
-  hint.textContent = `Peak now ${peak}% → after Apply ~${newPeak}% (max ${maxScalePct}% before 100% cap). Rewrites stored hours; Master is runtime-only.`;
+  const from = intensityBaseline ? 'baseline' : 'current';
+  hint.textContent = `Peak (${from}) ${peak}% → after Apply ~${newPeak}% (max ${maxScalePct}% before 100% cap). Always scales from original baseline; Off restores it.`;
 }
 function updatePhotoperiodHint() {
   const hint = document.getElementById('psHint');
@@ -1694,20 +1882,20 @@ function updatePhotoperiodHint() {
   const widenMins = Math.max(0, Math.min(480, parseInt(document.getElementById('psWidenMins')?.value || '0', 10) || 0));
   const baseRows = photoBaseline || _activeScheduleRows();
   const base = _photoMetrics(baseRows);
-  const targetHours = base.dayHours > 0
-    ? Math.max(4, Math.min(20, Math.round((base.dayHours + widenMins / 60) * 4) / 4))
+  const targetPlateau = (base.plateauHours > 0 || widenMins > 0)
+    ? Math.round((base.plateauHours + widenMins / 60) * 4) / 4
     : 0;
   const peakMins = Math.round((base.peakHour || 0) * 60);
-  const peakLabel = base.dayHours > 0
+  const peakLabel = base.peak > 0
     ? `${String(Math.floor(peakMins / 60) % 24).padStart(2,'0')}:${String(peakMins % 60).padStart(2,'0')}`
     : '—';
   if (hint) {
-    if (!(base.dayHours > 0)) {
-      hint.textContent = 'No photoperiod detected in the current schedule.';
+    if (!(base.peak > 0)) {
+      hint.textContent = 'No peak plateau detected in the current schedule.';
     } else if (!enabled) {
-      hint.textContent = `Peak intensity ~${peakLabel}. Bright period ${formatPhotoLen(base.dayHours)}. Enable, set minutes to increase, then Apply — widens symmetrically around the peak.`;
+      hint.textContent = `Peak plateau ~${peakLabel}, ${formatPhotoLen(base.plateauHours)} (sum of channels at max until decline). Ramps ${formatPhotoLen(base.rampUpHours)}/${formatPhotoLen(base.rampDownHours)}. Enable, set minutes, Apply — widens the flat top only.`;
     } else {
-      hint.textContent = `Peak ~${peakLabel}: ${formatPhotoLen(base.dayHours)} → ${formatPhotoLen(targetHours)} (+${widenMins} min). Earlier and later hours move equally around the peak.`;
+      hint.textContent = `Plateau ~${peakLabel}: ${formatPhotoLen(base.plateauHours)} → ${formatPhotoLen(targetPlateau)} (+${widenMins} min). Ramp-up/down durations unchanged; Off restores baseline.`;
     }
   }
   if (sub) {
@@ -1716,15 +1904,36 @@ function updatePhotoperiodHint() {
       : 'Off';
   }
 }
-function onIntensityEnableChange() {
+async function onIntensityEnableChange() {
   const on = !!document.getElementById('ixEnabled')?.checked;
-  setIntensityBtn(on);
+  if (!on) {
+    if (intensityBaseline) {
+      const restored = cloneScheduleRows(intensityBaseline);
+      intensityBaseline = null;
+      _afterIntensityWrite(restored);
+      if (document.getElementById('psEnabled')?.checked) {
+        photoBaseline = null;
+        await onPhotoperiodChange();
+      }
+      try { await api('POST', '/api/master', { value: 100 }); } catch (_) {}
+      setOk('Intensity off — original schedule restored. Push to save.');
+    }
+    setIntensityBtn(false);
+    const sub = document.getElementById('intensitySub');
+    if (sub) sub.textContent = 'Off';
+    updateIntensityHint();
+    updatePhotoperiodHint();
+    return;
+  }
+  if (!intensityBaseline) _captureIntensityBaseline();
+  setIntensityBtn(true);
   const sub = document.getElementById('intensitySub');
   if (sub) {
     const pct = parseInt(document.getElementById('ixScale')?.value || '100', 10);
-    sub.textContent = on ? `Ready ${pct}%` : 'Off';
+    sub.textContent = `Ready ${pct}%`;
   }
   updateIntensityHint();
+  if (typeof updateChart === 'function') updateChart();
 }
 function toggleIntensity() {
   const box = document.getElementById('ixEnabled');
@@ -1742,62 +1951,31 @@ function toggleIntensity() {
 }
 async function applyIntensityBake() {
   const box = document.getElementById('ixEnabled');
-  if (box && !box.checked) {
-    box.checked = true;
-    onIntensityEnableChange();
-  }
+  if (box && !box.checked) box.checked = true;
+  if (!intensityBaseline) _captureIntensityBaseline();
   const want = parseInt(document.getElementById('ixScale')?.value || '100', 10);
-  if (want === 100) { setOk('Intensity 100% — no change'); return; }
-  const usingBase = typeof scheduleBase !== 'undefined' && Array.isArray(scheduleBase);
-  const rows = _activeScheduleRows();
-  const peak = schedulePeakValue();
-  if (peak <= 0) { setErr('No schedule levels to bake'); return; }
-  const scale = Math.min(want / 100, 100 / peak);
-  const next = rows.map(row => {
-    const r = [row[0], row[1]];
-    for (let c = 2; c < 8; c++) r.push(Math.max(0, Math.min(100, Math.round((row[c] || 0) * scale))));
-    return r;
-  });
-  masterBrightness = 100;
-  const msl = document.getElementById('masterSlider'); if (msl) msl.value = 100;
-  const mv = document.getElementById('masterVal'); if (mv) mv.textContent = '100%';
-  if (usingBase) {
-    scheduleBase = next;
-    const chsList = DEVICES[cfg.device].channels;
-    chsList.forEach((ch, ci) => {
-      const p = Math.max(0, ...scheduleBase.map(row => row[2 + ci]));
-      channelBrightness[ch] = p > 0 ? p : 100;
-    });
-    if (typeof renderChannelScales === 'function') renderChannelScales();
-    if (typeof applyMaster === 'function') applyMaster();
-  } else {
-    schedule = next;
-    if (typeof resetCaps === 'function') resetCaps();
-    if (typeof buildChannelCaps === 'function') buildChannelCaps();
-  }
-  // Intensity bake replaces levels; refresh photoperiod baseline to the new schedule
+  const { next, scale, peak } = _scaleRowsFromBaseline(intensityBaseline, want);
+  if (peak <= 0 || !next) { setErr('No schedule levels to bake'); return; }
+  let written = next;
   if (document.getElementById('psEnabled')?.checked) {
-    // keep stretch relative to newly baked schedule
-    photoBaseline = cloneScheduleRows(_activeScheduleRows());
-    // re-apply current widen on top of new baseline
-    await onPhotoperiodChange();
+    photoBaseline = cloneScheduleRows(next);
+    const widenMins = Math.max(0, Math.min(480, parseInt(document.getElementById('psWidenMins')?.value || '0', 10) || 0));
+    const stretched = stretchScheduleRows(photoBaseline, widenMins / 60);
+    written = stretched || next;
   } else {
     photoBaseline = null;
   }
-  markScheduleDirty();
-  if (typeof updateChart === 'function') updateChart();
-  if (typeof updateColorStrip === 'function') updateColorStrip();
-  if (typeof updateNowBars === 'function') updateNowBars();
-  if (typeof buildNowBars === 'function') buildNowBars();
-  if (typeof syncCapSliders === 'function') syncCapSliders();
-  if (typeof syncChannelSliders === 'function') syncChannelSliders();
+  _afterIntensityWrite(written);
   try { await api('POST', '/api/master', { value: 100 }); } catch (_) {}
   setIntensityBtn(true);
+  if (box) box.checked = true;
   const sub = document.getElementById('intensitySub');
-  if (sub) sub.textContent = `Applied ×${scale.toFixed(2)}`;
+  if (sub) sub.textContent = want === 100 ? 'Applied 100% (baseline)' : `Applied ×${scale.toFixed(2)}`;
   updateIntensityHint();
   updatePhotoperiodHint();
-  setOk(`Intensity baked ×${scale.toFixed(2)} into schedule (Master reset to 100%). Push to save.`);
+  setOk(want === 100
+    ? 'Intensity 100% — baseline levels restored (Master 100%). Push to save.'
+    : `Intensity baked ×${scale.toFixed(2)} from baseline (Master reset to 100%). Push to save.`);
 }
 function togglePhotoperiod() {
   const box = document.getElementById('psEnabled');
@@ -1839,7 +2017,7 @@ async function onPhotoperiodChange() {
   if (!photoBaseline) resetPhotoBaselineFromCurrent();
   const next = stretchScheduleRows(photoBaseline, widenMins / 60);
   if (!next) {
-    setErr('No photoperiod to stretch');
+    setErr('No peak plateau to widen');
     document.getElementById('psEnabled').checked = false;
     setPhotoperiodBtn(false);
     photoBaseline = null;
@@ -1850,7 +2028,7 @@ async function onPhotoperiodChange() {
   setPhotoperiodBtn(true);
   updatePhotoperiodHint();
   setOk(widenMins > 0
-    ? `Photoperiod widened by ${widenMins} min (Push to save)`
+    ? `Peak plateau widened by ${widenMins} min (Push to save)`
     : 'Photoperiod stretch on · 0 min widen');
 }
 function initScheduleEffectsUI() {
@@ -1859,11 +2037,14 @@ function initScheduleEffectsUI() {
   const ps = document.getElementById('psEnabled');
   if (ps) ps.checked = false;
   photoBaseline = null;
+  intensityBaseline = null;
   setIntensityBtn(false);
   setPhotoperiodBtn(false);
   updateIntensityHint();
   updatePhotoperiodHint();
 }
+
+
 
 
 function isScheduleEditBusy() {
@@ -3543,6 +3724,8 @@ function updateChart() {
       borderWidth: 2,
     });
   }
+  const ghostDs = (typeof effectsGhostDataset === 'function') ? effectsGhostDataset(light) : null;
+  if (ghostDs) datasets.push(ghostDs);
   mobileChart.data.datasets = datasets;
   mobileChart.options.plugins.legend.labels.color = cssVar('--text');
   mobileChart.options.scales.x.ticks.color  = cssVar('--muted');
