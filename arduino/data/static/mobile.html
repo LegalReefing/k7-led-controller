@@ -1366,12 +1366,40 @@ async function loadVersionInfo() {
 }
 
 // ── API ──────────────────────────────────────────────────────────────────
-async function api(method, url, body) {
+async function api(method, url, body, _attempt = 0) {
   const opts = { method, headers: {'Content-Type':'application/json'} };
   if (body !== undefined) opts.body = JSON.stringify(body);
-  const r = await fetch(url, opts);
-  const d = await r.json();
-  if (!r.ok || d.error) throw new Error(d.error || r.statusText);
+  let r, text;
+  try {
+    r = await fetch(url, opts);
+    text = await r.text();
+  } catch (e) {
+    // Network drop (controller busy / Wi-Fi hiccup): retry reads once.
+    if (method === 'GET' && _attempt < 1) {
+      await new Promise(res => setTimeout(res, 400));
+      return api(method, url, body, _attempt + 1);
+    }
+    throw new Error(`${method} ${url}: controller unreachable (${e.message || e})`);
+  }
+  let d = null;
+  if (text && text.trim()) {
+    try { d = JSON.parse(text); } catch (_) { d = undefined; }
+  }
+  if (d === null || d === undefined) {
+    // Empty / truncated / non-JSON reply. The ESP32 web server sometimes drops
+    // the body when several requests arrive at once; retry reads once.
+    if (r.ok && method === 'GET' && _attempt < 1) {
+      await new Promise(res => setTimeout(res, 400));
+      return api(method, url, body, _attempt + 1);
+    }
+    if (!r.ok) {
+      const hint = r.status === 404 ? ' (not supported by this firmware)' : '';
+      throw new Error(`${method} ${url}: HTTP ${r.status}${hint}`);
+    }
+    if (method !== 'GET' && d === null) return { ok: true }; // empty 200 on a write = success
+    throw new Error(`${method} ${url}: bad reply from controller (${text ? 'not JSON' : 'empty'})`);
+  }
+  if (!r.ok || (d && d.error)) throw new Error(`${(d && d.error) || ('HTTP ' + r.status)} (${method} ${url})`);
   return d;
 }
 
@@ -3346,7 +3374,9 @@ async function exportBackup() {
       } catch(_) {}
       throw new Error(msg);
     }
-    const data = await r.json();
+    let data;
+    try { data = JSON.parse(await r.text()); }
+    catch (_) { throw new Error('GET /api/backup: bad reply from controller (not JSON)'); }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     downloadJson(`k7controller-backup-${stamp}.json`, data);
     setOk('Backup exported');
